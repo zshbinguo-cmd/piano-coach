@@ -84,10 +84,69 @@
         count++;
       }
       if (count === 0) continue;
-      scores.push({ midi, score: s - 0.6 * pen });
+      scores.push({ midi, score: s - 0.6 * pen, raw: s });
     }
     scores.sort((a, b) => b.score - a.score);
     return scores;
+  }
+
+  // 前后两个窗的谱峰对比：返回 { stab, drift, conc, decay }
+  function compareWindows(a, b, sr, fftSize, midi) {
+    const binHz = sr / fftSize;
+    const lo = Math.ceil(60 / binHz), hi = Math.min(a.length - 3, Math.floor(5000 / binHz));
+    let total = 0, amax = 0;
+    for (let i = lo; i < hi; i++) { total += a[i] * a[i]; if (a[i] > amax) amax = a[i]; }
+    const peaks = [];
+    for (let i = lo + 1; i < hi - 1; i++) {
+      if (a[i] > amax * 0.08 && a[i] >= a[i - 1] && a[i] > a[i + 1]) peaks.push(i);
+    }
+    peaks.sort((x, y) => a[y] - a[x]);
+    let inPeaks = 0;
+    for (const p of peaks.slice(0, 12)) for (let i = p - 3; i <= p + 3; i++) inPeaks += a[i] * a[i];
+    // 只看这个音自己的泛音峰：旁边有人说话时，说话的谐波不会把判断带偏
+    const f0 = midiToFreq(midi), B = midi < 48 ? 0.00015 : midi < 72 ? 0.0004 : 0.002;
+    const top = [];
+    for (let k = 1; k <= 12; k++) {
+      const c = k * f0 * Math.sqrt(1 + B * k * k) / binHz;
+      if (c >= hi) break;
+      const r = Math.max(1, Math.round(c * 0.02));
+      let m = 0, mi = -1;
+      for (let i = Math.max(lo, Math.round(c) - r); i <= Math.round(c) + r; i++) if (a[i] > m) { m = a[i]; mi = i; }
+      if (mi > 0 && m > amax * 0.05 && !top.includes(mi)) top.push(mi);
+    }
+    let sw = 0, drift = 0, ea = 0, eb = 0;
+    const near = [];
+    for (const p of top) {
+      // 在 ±6% 频率范围里找后一个窗的峰，算偏移了多少音分
+      const r = Math.max(2, Math.round(p * 0.06));
+      let bm = 0, bi = p;
+      for (let i = Math.max(lo, p - r); i <= Math.min(hi, p + r); i++) if (b[i] > bm) { bm = b[i]; bi = i; }
+      let nb = 0;
+      for (let i = p - 2; i <= p + 2; i++) if (b[i] > nb) nb = b[i];
+      near.push(nb);
+      const w = a[p];
+      sw += w; drift += w * 1731 * Math.abs(bi - p) / p;
+      ea += a[p]; eb += nb;
+    }
+    const decay = ea ? eb / ea : 0;
+    // 去掉整体衰减后，各个峰还在不在原位
+    let stab = 0;
+    top.forEach((p, j) => { stab += a[p] * Math.min(1, near[j] / (a[p] * decay || 1)); });
+    return {
+      stab: sw ? stab / sw : 0,
+      drift: sw ? drift / sw : 100,
+      conc: total ? Math.min(1, inPeaks / total) : 0,
+      decay,
+    };
+  }
+
+  // 琴声的特点：能量集中在几条很窄的泛音线上（conc）；50 毫秒后泛音还在原位（stab、drift 音分）；
+  // 起音后只会慢慢变弱、不会变强（decay）。说话音高会滑，敲击、拍手、脚步声衰减得太快。
+  function pianoJudge(f, midi) {
+    const minDecay = midi >= 84 ? 0.25 : midi >= 72 ? 0.35 : 0.5;
+    const sure = f.conc >= 0.85 && f.stab >= 0.8 && f.drift <= 22 && f.decay <= 1.15 && f.decay >= minDecay;
+    const maybe = sure || (f.conc >= 0.7 && f.stab >= 0.65 && f.drift <= 35 && f.decay <= 1.5 && f.decay >= minDecay * 0.7);
+    return { sure, maybe };
   }
 
   // ---------- 实时跟踪器 ----------
@@ -119,7 +178,10 @@
       this.pitchWin = hann(this.win);
       this.pitchFft = this.win * 2;
       this.gap = Math.round(0.012 * sr);
+      // 再隔一小段取第二个窗：钢琴的泛音稳定、慢慢衰减；说话的音高会滑、杂音很快就没了
+      this.later = Math.round(0.05 * sr);
       this.pending = [];
+      this.filter = opts.filter ?? true;   // 过滤说话、杂音
       this.level = 0;
     }
 
@@ -134,7 +196,7 @@
         this._onsetFrame(this.nextFrameAt - this.frame);
         this.nextFrameAt += this.hop;
       }
-      while (this.pending.length && this.n >= this.pending[0] + this.gap + this.win) {
+      while (this.pending.length && this.n >= this.pending[0] + this.gap + this.later + this.win) {
         const ev = this._analyze(this.pending.shift());
         if (ev) events.push(ev);
       }
@@ -190,6 +252,12 @@
       if (hist.length > 30) hist.shift();
     }
 
+    _laterDiff(onset, pre) {
+      const later = spectrum(this.ring, this.ringMask, onset + this.gap + this.later, this.pitchWin, this.pitchFft);
+      for (let i = 0; i < later.length; i++) { const d = later[i] - pre[i]; later[i] = d > 0 ? d : 0; }
+      return later;
+    }
+
     _analyze(onset) {
       if (onset - this.gap - this.win < this.n - this.ringSize) return null;
       const post = spectrum(this.ring, this.ringMask, onset + this.gap, this.pitchWin, this.pitchFft);
@@ -203,17 +271,29 @@
       if (energy <= 0) return null;
       const cands = scoreNotes(post, this.sr, this.pitchFft, this.lo, this.hi);
       if (!cands.length || cands[0].score <= 0) return null;
+      const feat = compareWindows(post, this._laterDiff(onset, pre), this.sr, this.pitchFft, cands[0].midi);
+      const judge = pianoJudge(feat, cands[0].midi);
+      if (this.filter && !judge.maybe) return null;
       const top = cands[0].score;
+      let maxRaw = 0;
+      for (const c of cands) if (c.raw > maxRaw) maxRaw = c.raw;
+      const presence = {};
+      for (const c of cands) presence[c.midi] = maxRaw ? c.raw / maxRaw : 0;
       return {
         time: onset / this.sr,
         midi: cands[0].midi,
         // 分数相对最高分的比例，用来容忍八度判断误差
         candidates: cands.slice(0, 6).map((c) => ({ midi: c.midi, rel: c.score / top })),
+        // 每个音的泛音能量（相对最大值），和弦里检查“该响的音响了没有”
+        presence,
+        feat,
+        // sure：很像琴声，可以拿来判错；不 sure 的只在和要弹的音对得上时才算数
+        sure: judge.sure,
       };
     }
   }
 
-  const api = { Tracker, midiToFreq, fft, hann };
+  const api = { Tracker, midiToFreq, fft, hann, pianoJudge };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PianoDetector = api;
 })(typeof self !== 'undefined' ? self : this);

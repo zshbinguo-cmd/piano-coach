@@ -375,15 +375,17 @@ function onNote(ev) {
   S.lastEv = { time: ev.time, midi: ev.midi };
   if (prev && ev.time - prev.time < 0.35 && prev.midi % 12 === ev.midi % 12) return;
   const played = spellPlain(ev.midi, S.flatKey);
-  $('heard').innerHTML = `刚听到：<b>${labelOct(played)}</b>`;
-  if (S.mode === 'free') return pushFree(played);
+  // 不太像琴声（说话、咳嗽、敲东西）：和要弹的音对得上才算数，对不上就当没听见，不判错
+  const unsure = ev.sure === false;
+  if (!unsure) $('heard').innerHTML = `刚听到：<b>${labelOct(played)}</b>`;
+  if (S.mode === 'free') return unsure ? undefined : pushFree(played);
   if (S.done) return;
   // 同一个音的余响被误当成新起音：忽略
   if (S.lastAccept && ev.time - S.lastAccept.time < 0.25 && matches(ev, S.lastAccept.midi)) return;
 
   // 刚判了“漏音”，结果马上补弹了那个音：其实是先弹错了，改判为弹错后改对
   const pm = S.pendingMiss;
-  S.pendingMiss = null;
+  if (!unsure) S.pendingMiss = null;   // 说话声不打断“漏音待定”
   if (pm && matches(ev, S.seq[pm.idx].midi)) {
     S.missed = S.missed.filter((i) => i !== pm.idx);
     S.errors[pm.idx].push(pm.played);
@@ -396,7 +398,10 @@ function onNote(ev) {
   const exp = S.seq[S.idx];
   const next = S.seq[S.idx + 1];
   if (matches(ev, exp.midi)) {
+    S.pendingMiss = null;
     accept(S.idx, ev);
+  } else if (unsure) {
+    return;
   } else if (next && matches(ev, next.midi) && next.midi % 12 !== exp.midi % 12) {
     S.missed.push(S.idx);
     S.pendingMiss = { idx: S.idx, played };

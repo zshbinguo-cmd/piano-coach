@@ -1,0 +1,695 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>音阶陪练</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500;8..60,700&display=swap">
+<style>
+/* 布局：左侧设置栏 + 右侧主区（下一个音 → 音阶序列 → 键盘 → 本次总结） */
+:root {
+  --paper: #F5F6F8;
+  --panel: #FFFFFF;
+  --ink: #1A1E28;
+  --muted: #5B6374;
+  --line: #DCE0E7;
+  --accent: #2C4A9E;
+  --accent-soft: #E5EAF7;
+  --good: #1D8653;
+  --good-soft: #E1F3E9;
+  --bad: #C7342C;
+  --bad-soft: #FBE6E4;
+  --warn: #A86C12;
+  --warn-soft: #FAF0DC;
+  --key-white: #FFFFFF;
+  --key-black: #1A1E28;
+  --font-note: "Source Serif 4", "Songti SC", Georgia, serif;
+  --font-ui: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #11141B; --panel: #191D26; --ink: #E7EAF1; --muted: #9AA2B3; --line: #2A303C;
+    --accent: #8FA7F0; --accent-soft: #222B45; --good: #4DC28A; --good-soft: #163428;
+    --bad: #FF6F66; --bad-soft: #3E1F1E; --warn: #E3A94C; --warn-soft: #392D16;
+    --key-white: #E6E9F0; --key-black: #0A0C11; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #11141B; --panel: #191D26; --ink: #E7EAF1; --muted: #9AA2B3; --line: #2A303C;
+  --accent: #8FA7F0; --accent-soft: #222B45; --good: #4DC28A; --good-soft: #163428;
+  --bad: #FF6F66; --bad-soft: #3E1F1E; --warn: #E3A94C; --warn-soft: #392D16;
+  --key-white: #E6E9F0; --key-black: #0A0C11; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body {
+  background: var(--paper); color: var(--ink); font: 15px/1.55 var(--font-ui);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 40px;
+}
+.wrap { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+h1 { margin: 0; font: 700 26px/1.2 var(--font-note); letter-spacing: 0.02em; }
+h1 small { font: 400 14px var(--font-ui); color: var(--muted); margin-left: 10px; letter-spacing: 0; }
+h2 { margin: 0; font-size: 13px; font-weight: 600; color: var(--muted); letter-spacing: 0.08em; }
+.layout { display: grid; grid-template-columns: 270px minmax(0, 1fr); gap: 18px; align-items: start; }
+@media (max-width: 820px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+.settings { display: flex; flex-direction: column; gap: 14px; }
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field label, .field .lbl { font-size: 13px; color: var(--muted); }
+select, input[type=range] { width: 100%; }
+select {
+  font: inherit; padding: 7px 9px; border-radius: 7px; border: 1px solid var(--line);
+  background: var(--paper); color: var(--ink);
+}
+.seg { display: flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.seg button { flex: 1; border: 0; background: transparent; color: var(--ink); font: inherit; font-size: 13px; padding: 7px 4px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--panel); }
+.hint { font-size: 12.5px; color: var(--muted); margin: 0; }
+button.primary, button.ghost {
+  font: inherit; font-weight: 600; border-radius: 8px; padding: 9px 16px; cursor: pointer;
+  border: 1px solid var(--accent);
+}
+button.primary { background: var(--accent); color: var(--panel); }
+button.ghost { background: transparent; color: var(--accent); }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button:disabled { opacity: 0.5; cursor: default; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.meter { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; width: 120px; }
+.meter i { display: block; height: 100%; width: 0; background: var(--good); transition: width 80ms linear; }
+.mic-state { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+
+.main { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.now { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 20px; align-items: center; transition: background-color 200ms; }
+.now.flash-bad { background: var(--bad-soft); border-color: var(--bad); }
+.now.flash-good { background: var(--good-soft); }
+.big-note { font: 700 78px/1 var(--font-note); min-width: 150px; text-align: center; color: var(--accent); }
+.big-note sub { font-size: 30px; color: var(--muted); font-weight: 500; vertical-align: baseline; margin-left: 2px; }
+.now-text { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.now-label { font-size: 13px; color: var(--muted); }
+.msg { font-size: 22px; font-weight: 600; min-height: 1.5em; }
+.msg.bad { color: var(--bad); }
+.msg.good { color: var(--good); }
+.heard { font-size: 13px; color: var(--muted); }
+.heard b { font-family: var(--font-note); color: var(--ink); }
+
+.seq { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  position: relative; min-width: 44px; padding: 6px 6px 4px; border-radius: 7px; text-align: center;
+  border: 1px solid var(--line); background: var(--paper); font: 600 17px/1.1 var(--font-note);
+}
+.chip sub { font: 400 11px var(--font-ui); color: var(--muted); }
+.chip.turn { margin-left: 14px; }
+.chip.turn::before { content: ""; position: absolute; left: -11px; top: 6px; bottom: 6px; border-left: 2px dotted var(--line); }
+.chip.done { background: var(--good-soft); border-color: transparent; color: var(--good); }
+.chip.fixed { background: var(--bad-soft); border-color: transparent; color: var(--bad); }
+.chip.miss { background: var(--bad-soft); color: var(--bad); text-decoration: line-through; border-color: transparent; }
+.chip.cur { border: 2px solid var(--accent); background: var(--accent-soft); color: var(--accent); padding: 5px 5px 3px; }
+.chip.cur.wrong { border-color: var(--bad); background: var(--bad-soft); color: var(--bad); }
+.chip .badge {
+  position: absolute; top: -7px; right: -6px; min-width: 17px; height: 17px; border-radius: 9px; padding: 0 4px;
+  background: var(--bad); color: var(--panel); font: 600 11px/17px var(--font-ui);
+}
+.chip.rush::after, .chip.drag::after {
+  content: ""; position: absolute; left: 6px; right: 6px; bottom: -6px; height: 3px; border-radius: 2px; background: var(--warn);
+}
+.chip.drag::after { background: repeating-linear-gradient(90deg, var(--warn) 0 4px, transparent 4px 7px); }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12.5px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+
+.kb-scroll { overflow-x: auto; }
+.kb { position: relative; height: 92px; min-width: 760px; display: flex; user-select: none; }
+.kb .w { flex: 1; border: 1px solid var(--line); border-left-width: 0; background: var(--key-white); border-radius: 0 0 4px 4px; position: relative; }
+.kb .w:first-child { border-left-width: 1px; }
+.kb .b { position: absolute; top: 0; height: 58%; background: var(--key-black); border-radius: 0 0 3px 3px; z-index: 1; }
+.kb .exp { background: var(--accent) !important; }
+.kb .ok { background: var(--good) !important; }
+.kb .bad { background: var(--bad) !important; }
+.kb .c-label { position: absolute; bottom: 3px; left: 0; right: 0; text-align: center; font-size: 9px; color: var(--muted); }
+
+.summary { display: flex; flex-direction: column; gap: 14px; }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 560px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.stat { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.stat .v { font: 700 26px/1.1 var(--font-note); font-variant-numeric: tabular-nums; }
+.stat .k { font-size: 12.5px; color: var(--muted); }
+.list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 3px; }
+.list b { font-family: var(--font-note); }
+.free-list { display: flex; flex-wrap: wrap; gap: 6px; }
+table.hist { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+table.hist th, table.hist td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); }
+table.hist th { color: var(--muted); font-weight: 500; }
+.err-box { color: var(--bad); font-size: 13.5px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>音阶陪练<small>弹的时候实时听错音 · 立式钢琴 + 电脑麦克风</small></h1>
+    <div class="actions">
+      <div class="mic-state"><span id="micText">麦克风未开启</span><div class="meter" aria-hidden="true"><i id="meter"></i></div></div>
+      <button class="primary" id="startBtn">开始听</button>
+      <button class="ghost" id="demoBtn" title="不用麦克风，播放一段带错音的合成钢琴声，看看效果">演示</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="panel settings" aria-label="练习设置">
+      <h2>练什么</h2>
+      <div class="field">
+        <span class="lbl">模式</span>
+        <div class="seg" id="modeSeg">
+          <button type="button" data-mode="scale" aria-pressed="true">音阶琶音</button>
+          <button type="button" data-mode="free" aria-pressed="false">试音</button>
+        </div>
+      </div>
+      <div class="field">
+        <label for="typeSel">类型</label>
+        <select id="typeSel">
+          <option value="major">大调音阶</option>
+          <option value="harmonic">和声小调音阶</option>
+          <option value="melodic">旋律小调音阶</option>
+          <option value="chromatic">半音阶</option>
+          <option value="arpMaj">大三和弦琶音（原位）</option>
+          <option value="arpMin">小三和弦琶音（原位）</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="tonicSel">调</label>
+        <select id="tonicSel"></select>
+      </div>
+      <div class="field">
+        <label for="octSel">八度数</label>
+        <select id="octSel">
+          <option value="1">1 个八度</option>
+          <option value="2" selected>2 个八度</option>
+          <option value="3">3 个八度</option>
+          <option value="4">4 个八度（8级要求）</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="startSel">从哪个音区开始</label>
+        <select id="startSel">
+          <option value="auto">自动</option>
+          <option value="1">大字组（C1 起）</option>
+          <option value="2">小字组下方（C2 起）</option>
+          <option value="3">小字组（C3 起）</option>
+          <option value="4">中央 C（C4 起）</option>
+        </select>
+      </div>
+      <div class="field">
+        <span class="lbl">判断方式</span>
+        <div class="seg" id="judgeSeg">
+          <button type="button" data-judge="pc" aria-pressed="true">只看音名</button>
+          <button type="button" data-judge="strict" aria-pressed="false">严格到八度</button>
+        </div>
+        <p class="hint">双手同向（相隔八度）弹时选“只看音名”。反向音阶、三度/六度音阶暂不支持。</p>
+      </div>
+      <div class="field">
+        <label for="sensRange">灵敏度 <span id="sensVal">中</span></label>
+        <input type="range" id="sensRange" min="0" max="1" step="0.05" value="0.5">
+        <p class="hint">漏听音就调高；没弹也报音就调低。</p>
+      </div>
+    </aside>
+
+    <section class="main">
+      <div class="panel now" id="nowCard">
+        <div class="big-note" id="bigNote">C<sub>3</sub></div>
+        <div class="now-text">
+          <span class="now-label" id="nowLabel">下一个音</span>
+          <div class="msg" id="msg">点“开始听”，然后从第一个音弹起</div>
+          <div class="heard" id="heard">弹错时停在这个音上，弹对了再往下走，不用从头来。</div>
+        </div>
+      </div>
+
+      <div class="panel" id="seqPanel">
+        <div class="actions" style="justify-content: space-between; margin-bottom: 12px;">
+          <h2 id="seqTitle">C 大调音阶 · 2 个八度</h2>
+          <button class="ghost" id="resetBtn">重来一遍</button>
+        </div>
+        <div class="seq" id="seq"></div>
+        <div class="legend" style="margin-top: 16px;">
+          <span><i style="background: var(--good-soft); border: 1px solid var(--good);"></i>一次弹对</span>
+          <span><i style="background: var(--bad-soft); border: 1px solid var(--bad);"></i>弹错后改对（数字=错几次）</span>
+          <span><i style="background: var(--warn);"></i>实线 = 抢拍，虚线 = 拖拍</span>
+        </div>
+      </div>
+
+      <div class="panel" id="freePanel" hidden>
+        <h2 style="margin-bottom: 10px;">最近听到的音</h2>
+        <div class="free-list" id="freeList"></div>
+        <p class="hint" style="margin-top: 12px;">先在这里随便弹几个单音、慢速音阶，看识别得准不准，再调灵敏度。</p>
+      </div>
+
+      <div class="panel kb-scroll"><div class="kb" id="kb" aria-hidden="true"></div></div>
+
+      <div class="panel summary" id="summary" hidden>
+        <h2>这一遍的结果</h2>
+        <div class="stats" id="stats"></div>
+        <div id="sumDetail"></div>
+      </div>
+
+      <div class="panel" id="histPanel" hidden>
+        <h2 style="margin-bottom: 8px;">最近练习记录（只存在这台电脑上）</h2>
+        <div style="overflow-x: auto;"><table class="hist"><thead><tr><th>时间</th><th>内容</th><th>错音</th><th>漏音</th><th>节奏波动</th></tr></thead><tbody id="histBody"></tbody></table></div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script src="detector.js"></script>
+<script src="synth.js"></script>
+<script>
+'use strict';
+// ---------- 乐理：音名拼写与音阶生成 ----------
+const LETTERS = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+const LPC = [0, 2, 4, 5, 7, 9, 11];
+const ACC = { '-2': '𝄫', '-1': '♭', '0': '', '1': '♯', '2': '𝄪' };
+const MAJ_TONICS = [['C', 0], ['D', -1], ['D', 0], ['E', -1], ['E', 0], ['F', 0], ['F', 1], ['G', 0], ['A', -1], ['A', 0], ['B', -1], ['B', 0]];
+const MIN_TONICS = [['C', 0], ['C', 1], ['D', 0], ['E', -1], ['E', 0], ['F', 0], ['F', 1], ['G', 0], ['G', 1], ['A', 0], ['B', -1], ['B', 0]];
+const TYPES = {
+  major: { name: '大调音阶', semis: [0, 2, 4, 5, 7, 9, 11], steps: [0, 1, 2, 3, 4, 5, 6] },
+  harmonic: { name: '和声小调音阶', semis: [0, 2, 3, 5, 7, 8, 11], steps: [0, 1, 2, 3, 4, 5, 6], minor: true },
+  melodic: { name: '旋律小调音阶', semis: [0, 2, 3, 5, 7, 9, 11], down: [0, 2, 3, 5, 7, 8, 10], steps: [0, 1, 2, 3, 4, 5, 6], minor: true },
+  chromatic: { name: '半音阶' },
+  arpMaj: { name: '大三和弦琶音', semis: [0, 4, 7], steps: [0, 2, 4] },
+  arpMin: { name: '小三和弦琶音', semis: [0, 3, 7], steps: [0, 2, 4], minor: true },
+};
+const SHARP_SP = [[0, 0], [0, 1], [1, 0], [1, 1], [2, 0], [3, 0], [3, 1], [4, 0], [4, 1], [5, 0], [5, 1], [6, 0]];
+const FLAT_SP = [[0, 0], [1, -1], [1, 0], [2, -1], [2, 0], [3, 0], [4, -1], [4, 0], [5, -1], [5, 0], [6, -1], [6, 0]];
+
+function spell(midi, li) {
+  let acc = ((midi % 12) - LPC[li] + 12) % 12;
+  if (acc > 6) acc -= 12;
+  return { midi, letter: LETTERS[li], acc, oct: Math.floor((midi - acc) / 12) - 1 };
+}
+function spellPlain(midi, flat) {
+  const [li] = (flat ? FLAT_SP : SHARP_SP)[midi % 12];
+  return spell(midi, li);
+}
+const label = (sp) => sp.letter + ACC[sp.acc];
+const labelOct = (sp) => label(sp) + sp.oct;
+
+function buildSeq(type, tonic, octaves, startOct) {
+  const [letter, acc] = tonic;
+  const li = LETTERS.indexOf(letter);
+  const t = TYPES[type];
+  const tonicMidi = (startOct + 1) * 12 + LPC[li] + acc;
+  const flatKey = acc < 0 || (letter === 'F' && acc === 0) || (t.minor && ['C', 'G', 'D', 'F'].includes(letter) && acc === 0);
+  if (type === 'chromatic') {
+    const up = [], down = [];
+    for (let i = 0; i <= 12 * octaves; i++) up.push(spellPlain(tonicMidi + i, false));
+    for (let i = 12 * octaves - 1; i >= 0; i--) down.push(spellPlain(tonicMidi + i, true));
+    return { notes: up.concat(down), flatKey, turn: up.length };
+  }
+  const run = (semis) => {
+    const out = [];
+    for (let o = 0; o < octaves; o++)
+      semis.forEach((s, d) => out.push(spell(tonicMidi + 12 * o + s, (li + t.steps[d]) % 7)));
+    out.push(spell(tonicMidi + 12 * octaves, li));
+    return out;
+  };
+  const up = run(t.semis);
+  const down = (t.down ? run(t.down) : up).slice(0, -1).reverse();
+  return { notes: up.concat(down), flatKey, turn: up.length };
+}
+
+// ---------- 状态 ----------
+const $ = (id) => document.getElementById(id);
+const S = {
+  mode: 'scale', judge: 'pc', seq: [], turn: 0, flatKey: false,
+  idx: 0, errors: [], missed: [], times: [], log: [], done: false,
+  lastAccept: null, title: '',
+};
+let audio = null; // { ctx, proc, stream?, src, tracker, kind }
+
+function storageGet(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } }
+function storageSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+
+function fillTonics() {
+  const t = TYPES[$('typeSel').value];
+  const list = t.minor ? MIN_TONICS : MAJ_TONICS;
+  const prev = $('tonicSel').value;
+  $('tonicSel').innerHTML = list.map(([l, a], i) => `<option value="${i}">${l}${ACC[a]}${t.minor ? ' 小调' : t === TYPES.chromatic ? ' 起' : ' 大调'}</option>`).join('');
+  if (prev && +prev < list.length) $('tonicSel').value = prev;
+}
+
+function setup() {
+  const type = $('typeSel').value;
+  const t = TYPES[type];
+  const tonic = (t.minor ? MIN_TONICS : MAJ_TONICS)[+$('tonicSel').value];
+  const oct = +$('octSel').value;
+  const st = $('startSel').value === 'auto' ? ({ 1: 4, 2: 3, 3: 2, 4: 2 })[oct] : +$('startSel').value;
+  const built = buildSeq(type, tonic, oct, st);
+  S.seq = built.notes; S.turn = built.turn; S.flatKey = built.flatKey;
+  S.title = `${tonic[0]}${ACC[tonic[1]]} ${t.minor ? '' : type === 'chromatic' ? '起 ' : ''}${t.name} · ${oct} 个八度`;
+  $('seqTitle').textContent = S.title;
+  storageSet('pc-settings', { type, tonic: $('tonicSel').value, oct, start: $('startSel').value, judge: S.judge, sens: $('sensRange').value });
+  reset();
+}
+
+function reset() {
+  S.idx = 0; S.errors = S.seq.map(() => []); S.missed = []; S.times = S.seq.map(() => null);
+  S.done = false; S.lastAccept = null; S.pendingMiss = null;
+  $('summary').hidden = true;
+  setMsg(audio ? '从第一个音弹起' : '点“开始听”，然后从第一个音弹起', '');
+  renderSeq(); renderNow(); renderKeys();
+}
+
+// ---------- 判断 ----------
+function matches(ev, midi) {
+  const c = ev.candidates.find((x) => x.midi === midi);
+  if (S.judge === 'pc') return ev.midi % 12 === midi % 12 || (c && c.rel >= 0.75);
+  return ev.midi === midi || (c && c.rel >= 0.85);
+}
+
+function onNote(ev) {
+  // 同一个音在很短时间内重复触发（余响、音频卡顿）只算一次
+  const prev = S.lastEv;
+  S.lastEv = { time: ev.time, midi: ev.midi };
+  if (prev && ev.time - prev.time < 0.35 && prev.midi % 12 === ev.midi % 12) return;
+  const played = spellPlain(ev.midi, S.flatKey);
+  $('heard').innerHTML = `刚听到：<b>${labelOct(played)}</b>`;
+  if (S.mode === 'free') return pushFree(played);
+  if (S.done) return;
+  // 同一个音的余响被误当成新起音：忽略
+  if (S.lastAccept && ev.time - S.lastAccept.time < 0.25 && matches(ev, S.lastAccept.midi)) return;
+
+  // 刚判了“漏音”，结果马上补弹了那个音：其实是先弹错了，改判为弹错后改对
+  const pm = S.pendingMiss;
+  S.pendingMiss = null;
+  if (pm && matches(ev, S.seq[pm.idx].midi)) {
+    S.missed = S.missed.filter((i) => i !== pm.idx);
+    S.errors[pm.idx].push(pm.played);
+    S.times[pm.idx + 1] = null;
+    S.idx = pm.idx;
+    accept(pm.idx, ev);
+    return;
+  }
+
+  const exp = S.seq[S.idx];
+  const next = S.seq[S.idx + 1];
+  if (matches(ev, exp.midi)) {
+    accept(S.idx, ev);
+  } else if (next && matches(ev, next.midi) && next.midi % 12 !== exp.midi % 12) {
+    S.missed.push(S.idx);
+    S.pendingMiss = { idx: S.idx, played };
+    S.idx++;
+    accept(S.idx, ev, `漏了 ${label(exp)}`);
+  } else {
+    S.errors[S.idx].push(played);
+    flash('bad');
+    setMsg(`弹成了 ${labelOct(played)}，应该是 ${labelOct(exp)}`, 'bad');
+    renderSeq(); renderKeys(ev.midi);
+  }
+}
+
+function accept(i, ev, note) {
+  S.times[i] = ev.time;
+  S.lastAccept = { time: ev.time, midi: S.seq[i].midi };
+  const hadErr = S.errors[i].length > 0;
+  S.idx = i + 1;
+  if (note) { setMsg(note, 'bad'); flash('bad'); }
+  else if (hadErr) { setMsg('改对了，继续', 'good'); flash('good'); }
+  else setMsg('', '');
+  if (S.idx >= S.seq.length) finish();
+  renderSeq(); renderNow(); renderKeys(null, ev.midi);
+}
+
+// ---------- 总结 ----------
+function rhythm() {
+  const iois = [];
+  for (let i = 1; i < S.seq.length; i++) {
+    const a = S.times[i - 1], b = S.times[i];
+    if (a == null || b == null || S.errors[i].length || S.missed.includes(i - 1)) continue;
+    iois.push({ i, d: b - a });
+  }
+  if (iois.length < 4) return null;
+  const sorted = iois.map((x) => x.d).sort((a, b) => a - b);
+  const med = sorted[sorted.length >> 1];
+  let sum = 0;
+  const marks = {};
+  for (const x of iois) {
+    const dev = x.d / med - 1;
+    sum += Math.abs(dev);
+    if (dev > 0.3) marks[x.i] = 'drag';
+    else if (dev < -0.3) marks[x.i] = 'rush';
+  }
+  return { med, wobble: sum / iois.length, marks };
+}
+
+function finish() {
+  S.done = true;
+  const r = rhythm();
+  S.rhythm = r;
+  const errCount = S.errors.reduce((a, e) => a + e.length, 0);
+  const clean = S.seq.filter((_, i) => !S.errors[i].length && !S.missed.includes(i)).length;
+  const first = S.times.find((t) => t != null), last = S.times[S.seq.length - 1];
+  setMsg(errCount + S.missed.length === 0 ? '全部弹对！' : '弹完了，看看下面的结果', errCount ? 'bad' : 'good');
+  $('stats').innerHTML = [
+    [`${clean}/${S.seq.length}`, '一次弹对'],
+    [errCount, '错音次数'],
+    [S.missed.length, '漏音'],
+    [r ? `±${Math.round(r.wobble * 100)}%` : '—', '节奏波动（越小越均匀）'],
+  ].map(([v, k]) => `<div class="stat"><div class="v">${v}</div><div class="k">${k}</div></div>`).join('');
+
+  const items = [];
+  S.seq.forEach((n, i) => {
+    if (S.errors[i].length) items.push(`第 ${i + 1} 个音 <b>${labelOct(n)}</b>：弹成了 ${S.errors[i].map((p) => `<b>${labelOct(p)}</b>`).join('、')}`);
+    if (S.missed.includes(i)) items.push(`第 ${i + 1} 个音 <b>${labelOct(n)}</b>：漏弹`);
+  });
+  let html = '';
+  if (items.length) html += `<p class="hint" style="margin:0 0 6px">要重点练的地方：</p><ol class="list">${items.join('</li><li>').replace(/^/, '<li>')}</li></ol>`;
+  if (r) {
+    const rush = Object.values(r.marks).filter((m) => m === 'rush').length;
+    const drag = Object.values(r.marks).filter((m) => m === 'drag').length;
+    html += `<p class="hint" style="margin-top:10px">平均每个音 ${r.med.toFixed(2)} 秒（约每分钟 ${Math.round(60 / r.med)} 个音）。` +
+      (rush + drag ? `有 ${rush} 处抢拍、${drag} 处拖拍，已在上面的音符下划线标出，常见在换指和转向的地方。` : '没有明显抢拍或拖拍。') + `</p>`;
+  }
+  $('sumDetail').innerHTML = html;
+  $('summary').hidden = false;
+
+  const hist = storageGet('pc-history', []);
+  hist.unshift({ at: Date.now(), title: S.title, err: errCount, miss: S.missed.length, wob: r ? Math.round(r.wobble * 100) : null, dur: first != null && last != null ? last - first : null });
+  storageSet('pc-history', hist.slice(0, 15));
+  renderHist();
+}
+
+function renderHist() {
+  const hist = storageGet('pc-history', []);
+  $('histPanel').hidden = !hist.length;
+  $('histBody').innerHTML = hist.map((h) => {
+    const d = new Date(h.at);
+    const ts = `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    return `<tr><td>${ts}</td><td>${h.title}</td><td>${h.err}</td><td>${h.miss}</td><td>${h.wob == null ? '—' : '±' + h.wob + '%'}</td></tr>`;
+  }).join('');
+}
+
+// ---------- 渲染 ----------
+function setMsg(text, cls) { const m = $('msg'); m.textContent = text; m.className = 'msg ' + (cls || ''); }
+let flashTimer;
+function flash(kind) {
+  const c = $('nowCard');
+  c.classList.remove('flash-bad', 'flash-good');
+  void c.offsetWidth;
+  c.classList.add('flash-' + kind);
+  clearTimeout(flashTimer);
+  flashTimer = setTimeout(() => c.classList.remove('flash-' + kind), kind === 'bad' ? 900 : 400);
+}
+
+function renderNow() {
+  if (S.mode === 'free') return;
+  const n = S.seq[S.idx];
+  $('nowLabel').textContent = S.done ? '完成' : `下一个音（第 ${S.idx + 1} / ${S.seq.length} 个）`;
+  $('bigNote').innerHTML = n ? `${label(n)}<sub>${n.oct}</sub>` : '✓';
+}
+
+function renderSeq() {
+  const marks = S.done && S.rhythm ? S.rhythm.marks : {};
+  $('seq').innerHTML = S.seq.map((n, i) => {
+    const cls = ['chip'];
+    const ec = S.errors[i] ? S.errors[i].length : 0;
+    if (i === S.turn) cls.push('turn');
+    if (S.missed.includes(i)) cls.push('miss');
+    else if (i < S.idx) cls.push(ec ? 'fixed' : 'done');
+    else if (i === S.idx && !S.done) cls.push('cur', ec ? 'wrong' : '');
+    if (marks[i]) cls.push(marks[i]);
+    const badge = ec ? `<span class="badge">${ec}</span>` : '';
+    return `<div class="${cls.join(' ')}" title="第 ${i + 1} 个">${label(n)}<sub>${n.oct}</sub>${badge}</div>`;
+  }).join('');
+}
+
+const keyEls = {};
+function buildKeys() {
+  const kb = $('kb');
+  const whites = [];
+  for (let m = 21; m <= 108; m++) if (LPC.includes(m % 12)) whites.push(m);
+  const ww = 100 / whites.length;
+  let html = '';
+  for (const m of whites) html += `<div class="w" data-m="${m}">${m % 12 === 0 ? `<span class="c-label">C${m / 12 - 1}</span>` : ''}</div>`;
+  for (let m = 21; m <= 108; m++) {
+    if (LPC.includes(m % 12)) continue;
+    const before = whites.filter((w) => w < m).length;
+    html += `<div class="b" data-m="${m}" style="left:${before * ww - ww * 0.3}%;width:${ww * 0.6}%"></div>`;
+  }
+  kb.innerHTML = html;
+  kb.querySelectorAll('[data-m]').forEach((el) => (keyEls[el.dataset.m] = el));
+}
+let keyTimer;
+function renderKeys(badMidi, okMidi) {
+  Object.values(keyEls).forEach((el) => el.classList.remove('exp', 'bad', 'ok'));
+  const n = S.mode === 'scale' && !S.done ? S.seq[S.idx] : null;
+  if (n && keyEls[n.midi]) keyEls[n.midi].classList.add('exp');
+  if (badMidi != null && keyEls[badMidi]) keyEls[badMidi].classList.add('bad');
+  if (okMidi != null && keyEls[okMidi] && (!n || n.midi !== okMidi)) keyEls[okMidi].classList.add('ok');
+  clearTimeout(keyTimer);
+  if (badMidi != null || okMidi != null) keyTimer = setTimeout(() => renderKeys(), 600);
+}
+
+const freeNotes = [];
+function pushFree(sp) {
+  freeNotes.unshift(sp);
+  if (freeNotes.length > 24) freeNotes.pop();
+  $('bigNote').innerHTML = `${label(sp)}<sub>${sp.oct}</sub>`;
+  $('freeList').innerHTML = freeNotes.map((n, i) => `<div class="chip ${i === 0 ? 'cur' : ''}">${label(n)}<sub>${n.oct}</sub></div>`).join('');
+  renderKeys(null, sp.midi);
+}
+
+// ---------- 音频 ----------
+function makeProc(ctx) {
+  const tracker = new PianoDetector.Tracker(ctx.sampleRate, { sensitivity: +$('sensRange').value });
+  const proc = ctx.createScriptProcessor(1024, 1, 1);
+  proc.onaudioprocess = (e) => {
+    const x = e.inputBuffer.getChannelData(0);
+    const evs = tracker.push(x);
+    const db = 20 * Math.log10(tracker.level + 1e-6);
+    $('meter').style.width = Math.max(0, Math.min(100, (db + 60) * 2)) + '%';
+    evs.forEach(onNote);
+  };
+  proc.connect(ctx.destination);
+  return { proc, tracker };
+}
+
+async function startMic() {
+  stopAudio();
+  // iPad/iPhone 上音频必须在点击的同一时刻创建，等麦克风授权回来再建会一直静音
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  ctx.resume();
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    if (ctx.state !== 'running') await ctx.resume();
+    const src = ctx.createMediaStreamSource(stream);
+    const { proc, tracker } = makeProc(ctx);
+    src.connect(proc);
+    audio = { ctx, proc, src, stream, tracker, kind: 'mic' };
+    $('micText').textContent = '正在听';
+    $('startBtn').textContent = '停止';
+    reset();
+  } catch (err) {
+    ctx.close();
+    $('micText').innerHTML = `<span class="err-box">打不开麦克风：请在浏览器地址栏左侧允许使用麦克风，然后再点“开始听”。</span>`;
+  }
+}
+
+function stopAudio() {
+  if (!audio) return;
+  try { audio.src.disconnect(); audio.proc.disconnect(); } catch {}
+  if (audio.stream) audio.stream.getTracks().forEach((t) => t.stop());
+  audio.ctx.close();
+  audio = null;
+  $('micText').textContent = '麦克风未开启';
+  $('startBtn').textContent = '开始听';
+  $('meter').style.width = '0';
+}
+
+async function runDemo() {
+  stopAudio();
+  if (S.mode !== 'scale') setMode('scale');
+  reset();
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const n = Math.min(S.seq.length, 15);
+  const wrong = new Set([4, 10]);
+  // 第 5、11 个音先弹错半音再改对，之后整体往后推，留出改正的时间
+  let shift = 0;
+  const timeline = [];
+  S.seq.slice(0, n).forEach((s, i) => {
+    const t = 0.4 + i * 0.32 + shift;
+    if (wrong.has(i)) {
+      timeline.push({ midi: s.midi + 1, t, dur: 0.3, vel: 0.7 });
+      timeline.push({ midi: s.midi, t: t + 0.6, dur: 0.3, vel: 0.7 });
+      shift += 0.6;
+    } else timeline.push({ midi: s.midi, t, dur: 0.34, vel: 0.55 + 0.2 * Math.random() });
+  });
+  $('micText').textContent = '演示中（合成钢琴声）';
+  const data = PianoSynth.render(timeline, ctx.sampleRate, { gain: 0.5 });
+  const buf = ctx.createBuffer(1, data.length, ctx.sampleRate);
+  buf.copyToChannel(data, 0);
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  const { proc, tracker } = makeProc(ctx);
+  src.connect(proc);
+  src.connect(ctx.destination);
+  audio = { ctx, proc, src, tracker, kind: 'demo' };
+  $('startBtn').textContent = '停止';
+  src.onended = () => { if (audio && audio.kind === 'demo') { stopAudio(); $('micText').textContent = '演示结束'; } };
+  src.start();
+}
+
+// ---------- 交互 ----------
+function setMode(mode) {
+  S.mode = mode;
+  document.querySelectorAll('#modeSeg button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.mode === mode));
+  $('seqPanel').hidden = mode !== 'scale';
+  $('freePanel').hidden = mode !== 'free';
+  $('summary').hidden = true;
+  $('nowLabel').textContent = mode === 'free' ? '刚听到的音' : '下一个音';
+  if (mode === 'free') { $('bigNote').textContent = '—'; setMsg('随便弹，看识别准不准', ''); renderKeys(); }
+  else reset();
+}
+
+$('startBtn').onclick = () => (audio ? stopAudio() : startMic());
+$('demoBtn').onclick = runDemo;
+$('resetBtn').onclick = reset;
+document.querySelectorAll('#modeSeg button').forEach((b) => (b.onclick = () => setMode(b.dataset.mode)));
+document.querySelectorAll('#judgeSeg button').forEach((b) => (b.onclick = () => {
+  S.judge = b.dataset.judge;
+  document.querySelectorAll('#judgeSeg button').forEach((x) => x.setAttribute('aria-pressed', x === b));
+  setup();
+}));
+$('typeSel').onchange = () => { fillTonics(); setup(); };
+['tonicSel', 'octSel', 'startSel'].forEach((id) => ($(id).onchange = setup));
+$('sensRange').oninput = () => {
+  const v = +$('sensRange').value;
+  $('sensVal').textContent = v < 0.35 ? '低' : v > 0.65 ? '高' : '中';
+  if (audio) audio.tracker.sensitivity = v;
+};
+
+// 初始化：恢复上次的设置
+(function init() {
+  buildKeys();
+  const s = storageGet('pc-settings', null);
+  if (s) {
+    $('typeSel').value = s.type || 'major';
+    fillTonics();
+    if (s.tonic != null) $('tonicSel').value = s.tonic;
+    $('octSel').value = s.oct || 2;
+    $('startSel').value = s.start || 'auto';
+    $('sensRange').value = s.sens ?? 0.5;
+    S.judge = s.judge || 'pc';
+    document.querySelectorAll('#judgeSeg button').forEach((x) => x.setAttribute('aria-pressed', x.dataset.judge === S.judge));
+    $('sensRange').oninput();
+  } else fillTonics();
+  setup();
+  renderHist();
+})();
+</script>
+</body>
+</html>
